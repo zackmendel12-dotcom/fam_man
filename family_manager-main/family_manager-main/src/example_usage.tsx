@@ -1,32 +1,29 @@
-import { useAccount } from "wagmi";
 import { 
   useRegisterChild,
-  useFundChildWithApproval,
+  useFundChild,
   useChildBalance,
   useChildLimits,
   useUpdateChildLimits,
   usePauseChild,
   useChildSpend,
-  useFamilyManagerEvents,
+  useTransactionStream,
   toUsdcAmount,
   formatUsdcAmount,
   type ChildLimits
 } from "./hooks/use_family_manager";
 
 export function FamilyManagerExample() {
-  const { address } = useAccount();
-  
   const childAddress = "0x..." as `0x${string}`;
   
-  const { balance, balanceFormatted, isLoading: balanceLoading } = useChildBalance(childAddress);
-  const { limits, isLoading: limitsLoading } = useChildLimits(childAddress);
-  const { events } = useFamilyManagerEvents();
+  const { balanceFormatted, isLoading: balanceLoading } = useChildBalance(childAddress);
+  const { data: limits, isLoading: limitsLoading } = useChildLimits(childAddress);
+  const { transactions } = useTransactionStream();
   
-  const { registerChild, isPending: isRegistering, error: registerError } = useRegisterChild();
-  const { fundWithApproval, isPending: isFunding, error: fundError } = useFundChildWithApproval();
-  const { updateLimits, isPending: isUpdatingLimits } = useUpdateChildLimits();
-  const { pauseChild, isPending: isPausing } = usePauseChild();
-  const { spend, isPending: isSpending } = useChildSpend();
+  const { write: registerChild, isPending: isRegistering, error: registerError } = useRegisterChild();
+  const { write: fundChild, isPending: isFunding, error: fundError } = useFundChild();
+  const { write: updateLimits, isPending: isUpdatingLimits } = useUpdateChildLimits();
+  const { write: pauseChild, isPending: isPausing } = usePauseChild();
+  const { write: spend, isPending: isSpending } = useChildSpend();
 
   const handleRegister = async () => {
     try {
@@ -40,7 +37,7 @@ export function FamilyManagerExample() {
   const handleFund = async () => {
     try {
       const amount = toUsdcAmount(100);
-      await fundWithApproval(childAddress, amount);
+      await fundChild(childAddress, amount);
       console.log("Child funded successfully");
     } catch (err) {
       console.error("Failed to fund child:", err);
@@ -136,9 +133,9 @@ export function FamilyManagerExample() {
       </div>
 
       <div>
-        <h2>Recent Events</h2>
+        <h2>Recent Transactions</h2>
         <ul>
-          {events.map((event, index) => (
+          {transactions.map((event, index) => (
             <li key={index}>
               <strong>{event.type}</strong> - {new Date(event.timestamp).toLocaleString()}
               {event.txHash && (
