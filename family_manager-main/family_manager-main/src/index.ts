@@ -23,3 +23,5 @@ export {
 export * from "./hooks";
 
 export * from "./lib";
+
+export * from "./providers/root-provider";
