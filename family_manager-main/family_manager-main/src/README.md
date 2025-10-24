@@ -12,6 +12,13 @@ src/
 ├── hooks/
 │   ├── use_family_manager.ts # All wagmi hooks for contract interaction
 │   └── index.ts             # Barrel export
+├── lib/
+│   ├── units.ts             # USDC unit conversion utilities
+│   ├── address.ts           # Address validation helpers
+│   ├── __tests__/           # Unit tests for utilities
+│   │   ├── units.test.ts
+│   │   └── address.test.ts
+│   └── index.ts             # Barrel export
 ├── example_usage.tsx         # Example component demonstrating usage
 └── README.md                # This file
 ```
@@ -36,9 +43,66 @@ If `NEXT_PUBLIC_FAMILY_MANAGER_ADDRESS` is not set, it will fall back to the def
 
 - **`getFamilyManagerAddress()`**: Returns the FamilyManager contract address with Base Sepolia guard
 - **`getUsdcAddress()`**: Returns the USDC contract address
-- **`toUsdcAmount(amount)`**: Converts a number to USDC 6-decimal format (bigint)
-- **`fromUsdcAmount(amount)`**: Converts USDC 6-decimal bigint to number
-- **`formatUsdcAmount(amount)`**: Formats USDC amount as string with 2 decimals
+
+### USDC Unit Conversion Utilities (`src/lib/units.ts`)
+
+All USDC amounts use 6 decimal precision (1 USDC = 1,000,000 units).
+
+#### Conversion Functions
+
+- **`toUsdcAmount(amount: number | string): bigint`**: Converts a number or string to USDC units (bigint)
+  - Throws error for negative, infinite, or invalid values
+  - Supports decimal precision up to 6 places
+  - Example: `toUsdcAmount("1.5")` → `1500000n`
+
+- **`fromUsdcAmount(amount: bigint): string`**: Converts USDC units to decimal string
+  - Returns full 6-decimal precision
+  - Example: `fromUsdcAmount(1500000n)` → `"1.500000"`
+
+- **`formatUsdcAmount(amount: bigint, decimals?: number): string`**: Formats USDC amount with specified decimals (default: 2)
+  - Example: `formatUsdcAmount(1500000n)` → `"1.50"`
+  - Example: `formatUsdcAmount(1123456n, 4)` → `"1.1234"`
+
+- **`parseUsdcInput(input: string): { value: bigint; error: string | null }`**: Safely parses user input
+  - Returns parsed value and error message if invalid
+  - Example: `parseUsdcInput("1.5")` → `{ value: 1500000n, error: null }`
+
+#### Validation Functions
+
+- **`isZeroUsdc(amount: bigint): boolean`**: Checks if amount is zero
+- **`isNegativeUsdc(amount: bigint): boolean`**: Checks if amount is negative
+- **`isPositiveUsdc(amount: bigint): boolean`**: Checks if amount is positive
+
+#### Arithmetic Functions
+
+- **`addUsdc(a: bigint, b: bigint): bigint`**: Adds two USDC amounts
+- **`subtractUsdc(a: bigint, b: bigint): bigint`**: Subtracts b from a (throws if result would be negative)
+- **`compareUsdc(a: bigint, b: bigint): number`**: Compares two amounts (-1, 0, or 1)
+- **`minUsdc(a: bigint, b: bigint): bigint`**: Returns minimum amount
+- **`maxUsdc(a: bigint, b: bigint): bigint`**: Returns maximum amount
+
+### Address Validation Utilities (`src/lib/address.ts`)
+
+Ethereum address validation using viem utilities.
+
+- **`validateAddress(address: string): { valid: boolean; error: string | null }`**: Validates Ethereum address format
+  - Trims whitespace automatically
+  - Returns validation result with error message
+
+- **`validateAddressWithChecksum(address: string): { valid: boolean; error: string | null; checksummed?: Address }`**: Validates address and checks checksum
+  - Returns checksummed version if valid
+  - Detects incorrect checksum casing
+
+- **`isValidAddress(address: string): boolean`**: Type guard for valid addresses
+  - Returns true if address is valid Ethereum address
+
+- **`normalizeAddress(address: string): Address`**: Converts address to checksummed format
+  - Throws error if address is invalid
+  - Trims whitespace automatically
+
+- **`isZeroAddress(address: string): boolean`**: Checks if address is zero address (0x000...000)
+
+- **`isSameAddress(a: string, b: string): boolean`**: Case-insensitive address comparison
 
 ### Read Hooks
 
@@ -188,14 +252,79 @@ All write hooks translate common contract revert messages to friendly error stri
 USDC uses 6 decimals. Always use the helper functions when working with amounts:
 
 ```typescript
+import { 
+  toUsdcAmount, 
+  fromUsdcAmount, 
+  formatUsdcAmount, 
+  parseUsdcInput,
+  isPositiveUsdc,
+  compareUsdc 
+} from "@/src/lib/units";
+
 // Convert to USDC amount (6 decimals)
 const amount = toUsdcAmount(100); // 100 USDC → 100000000n
+const amountFromString = toUsdcAmount("1.5"); // "1.5" USDC → 1500000n
 
 // Convert from USDC amount
-const humanAmount = fromUsdcAmount(100000000n); // 100000000n → 100
+const humanAmount = fromUsdcAmount(100000000n); // 100000000n → "100.000000"
 
-// Format for display
-const formatted = formatUsdcAmount(100000000n); // "100.00"
+// Format for display with custom decimals
+const formatted = formatUsdcAmount(100000000n); // "100.00" (default 2 decimals)
+const formattedDetailed = formatUsdcAmount(1123456n, 4); // "1.1234"
+
+// Safe parsing of user input
+const { value, error } = parseUsdcInput("10.50");
+if (error) {
+  console.error("Invalid input:", error);
+} else {
+  console.log("Parsed value:", value); // 10500000n
+}
+
+// Validation
+if (isPositiveUsdc(amount)) {
+  console.log("Amount is positive");
+}
+
+// Comparison
+if (compareUsdc(amount1, amount2) > 0) {
+  console.log("amount1 is greater");
+}
+```
+
+## Address Validation Helpers
+
+Use the address validation utilities for user input and address handling:
+
+```typescript
+import { 
+  validateAddress, 
+  normalizeAddress, 
+  isValidAddress,
+  isSameAddress,
+  isZeroAddress 
+} from "@/src/lib/address";
+
+// Validate user input
+const { valid, error } = validateAddress(userInput);
+if (!valid) {
+  console.error("Invalid address:", error);
+}
+
+// Type guard
+if (isValidAddress(userInput)) {
+  // TypeScript knows userInput is Address type here
+  const normalized = normalizeAddress(userInput);
+}
+
+// Compare addresses (case-insensitive)
+if (isSameAddress(address1, address2)) {
+  console.log("Same address");
+}
+
+// Check for zero address
+if (isZeroAddress(address)) {
+  console.error("Cannot use zero address");
+}
 ```
 
 ## Usage Example
@@ -254,6 +383,32 @@ If a function is not found in the ABI (like `blockCategory`), the hook will:
 This ensures forward compatibility if the contract ABI changes.
 
 ## Testing
+
+### Unit Tests
+
+The utility libraries have comprehensive unit test coverage using Vitest:
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with UI
+npm run test:ui
+
+# Run tests with coverage
+npm run test:coverage
+```
+
+The test suite covers:
+- **USDC Unit Conversion**: Round-trip conversions, precision handling, edge cases, validation, and arithmetic operations
+- **Address Validation**: Format validation, checksum verification, zero address detection, and address comparison
+
+Test files are located in `src/lib/__tests__/`.
+
+### Integration Testing
 
 To test the hooks in your application:
 
