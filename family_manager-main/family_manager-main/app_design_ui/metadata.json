@@ -1,0 +1,5 @@
+{
+  "name": "BaseFam — Smart Family Wallet",
+  "description": "A fun onchain app that helps parents manage family spending with Subaccounts and Auto Spend Permissions. Parents can fund a main wallet, set limits for family members, who can then spend within their allowances at approved stores.",
+  "requestFramePermissions": []
+}
