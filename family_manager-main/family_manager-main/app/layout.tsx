@@ -1,34 +1,33 @@
-"use client";
-import { ReactNode } from "react";
-import { baseSepolia } from "wagmi/chains";
-import { OnchainKitProvider } from "@coinbase/onchainkit";
-import { WagmiProvider } from "wagmi";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { wagmiConfig } from "../working_connect_wallet_sample/wagmi.config";
-import "@coinbase/onchainkit/styles.css";
+import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
+import { RootProvider } from "@/providers/root-provider";
 import "./globals.css";
 
-const queryClient = new QueryClient();
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export const metadata: Metadata = {
+  title: "BaseFam - Smart Family Wallet",
+  description: "Empower your family with on-chain allowances and spending management on Base",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en">
-      <head>
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>BaseFam - Smart Family Wallet</title>
-      </head>
+    <html lang="en" className={inter.variable}>
       <body>
-        <WagmiProvider config={wagmiConfig}>
-          <QueryClientProvider client={queryClient}>
-            <OnchainKitProvider
-              apiKey={process.env.NEXT_PUBLIC_CDP_API_KEY}
-              chain={baseSepolia}
-            >
-              {children}
-            </OnchainKitProvider>
-          </QueryClientProvider>
-        </WagmiProvider>
+        <RootProvider>{children}</RootProvider>
       </body>
     </html>
   );

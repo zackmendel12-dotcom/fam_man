@@ -1,46 +1,48 @@
-# Quick Start - Dev Test Harness
+# Quick Start - BaseFam Smart Family Wallet
 
-## 🚀 Access in 3 Steps
+## 🚀 Get Started in 3 Steps
 
-### 1. Start Dev Server
+### 1. Install Dependencies
 ```bash
-cd app_design_ui
+npm install
+```
+
+### 2. Configure Environment
+Copy `.env.example` to `.env.local` and fill in required values:
+```bash
+cp .env.example .env.local
+```
+
+Edit `.env.local`:
+```env
+NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
+NEXT_PUBLIC_FAMILY_MANAGER_ADDRESS=0x...
+NEXT_PUBLIC_USDC_ADDRESS=0x...
+NEXT_PUBLIC_CHAIN_ID=84532
+NEXT_PUBLIC_CDP_API_KEY=
+```
+
+### 3. Start Dev Server
+```bash
 npm run dev
 ```
 
-### 2. Open Browser
-Navigate to one of:
-- `http://localhost:5173/#dev`
-- `http://localhost:5173/?dev=true`
-
-### 3. Dismiss Warning
-Click **"I Understand, Continue"** button
+Open [http://localhost:3000](http://localhost:3000) in your browser
 
 ---
 
-## ⚡ Quick Actions
+## 🔧 Available Scripts
 
-### Test Family Service
-```
-1. Click "Load Family Data" → See current state
-2. Add member → Enter name, role, limits → Click "Add Member"
-3. View result in right panel with JSON data
-```
-
-### Test Units Helpers
-```
-1. Enter "1.5" in Amount field
-2. Click "Test parseUnits/formatUnits"
-3. See Wei conversion: "1500000000000000000"
-```
-
-### Simulate Transaction
-```
-1. Enter address: "0x1234567890abcdef..."
-2. Enter amount: "2.0"
-3. Click "Simulate Fund Child"
-4. Get mock transaction hash
-```
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server on port 3000 |
+| `npm run build` | Build production bundle |
+| `npm start` | Start production server |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | Run TypeScript type checking |
+| `npm test` | Run tests with Vitest |
+| `npm run format` | Format code with Prettier |
+| `npm run format:check` | Check code formatting |
 
 ---
 
@@ -48,124 +50,114 @@ Click **"I Understand, Continue"** button
 
 | Document | Purpose |
 |----------|---------|
-| **DEV_TEST_HARNESS.md** | Complete user guide |
-| **FEATURE_SUMMARY.md** | Implementation overview |
-| **pages/dev/README.md** | Technical details |
-| **pages/dev/INTEGRATION_EXAMPLE.md** | Real contract integration |
-| **pages/dev/VISUAL_GUIDE.md** | UI mockups |
+| **APP_IMPLEMENTATION.md** | App architecture and implementation details |
+| **FEATURE_SUMMARY.md** | Feature overview |
+| **FAMILY_MANAGER_HOOKS_IMPLEMENTATION.md** | Hook system documentation |
+| **src/README.md** | SDK documentation |
 
 ---
 
-## 🎯 Common Use Cases
+## 🏗️ Tech Stack
 
-### Test Adding a Kid
-```
-Add Member Form:
-├─ Name: "Emma"
-├─ Role: Kid
-├─ Spending Limit: 50
-└─ Daily Allowance: 10
+### Core Framework
+- **Next.js 15** - App Router with React 19
+- **TypeScript** - Type safety
+- **Tailwind CSS** - Utility-first styling
 
-Result: ✓ New member with ID "kid-{timestamp}"
-```
+### Web3 & Blockchain
+- **Wagmi v2** - React hooks for Ethereum
+- **Viem v2** - Low-level Ethereum interactions
+- **Coinbase OnchainKit** - Wallet components and utilities
 
-### Test Processing Allowances
-```
-Click: "Process Allowances"
-Result: All kids receive daily allowance
-        Main wallet balance decreases
-```
+### State & Data
+- **TanStack Query v5** - Server state management
+- **Sonner** - Toast notifications
 
-### Test Member Update
-```
-Update Form:
-├─ Member ID: "kid-01"
-├─ New Limit: 75
-└─ New Allowance: 15
+### Development Tools
+- **ESLint** - Code linting
+- **Prettier** - Code formatting
+- **Vitest** - Unit testing
 
-Result: ✓ Settings updated for kid-01
+---
+
+## 🎯 Project Structure
+
+```
+.
+├── app/                    # Next.js App Router
+│   ├── layout.tsx         # Root layout with metadata
+│   ├── page.tsx           # Main dashboard page
+│   ├── wagmi.config.ts    # Wagmi configuration
+│   └── components/        # App-specific components
+├── src/                   # SDK and shared code
+│   ├── contracts/         # Contract ABIs and helpers
+│   ├── hooks/             # Custom React hooks (useFamilyManager)
+│   ├── lib/              # Utility functions
+│   └── providers/        # Context providers (RootProvider)
+├── contract/             # Contract artifacts
+└── .env.local           # Environment variables (create from .env.example)
 ```
 
 ---
 
-## 🔧 Utilities Available
+## 🔧 Path Aliases
+
+TypeScript path aliases are configured for cleaner imports:
 
 ```typescript
-// Import from utils
-import { parseEther, formatEther, parseUnits, formatUnits } from './utils';
+// Instead of: import { useFamilyManager } from '../../../src/hooks'
+import { useFamilyManager } from '@/hooks';
 
-// ETH conversions (18 decimals)
-parseEther("1.5")          // → 1500000000000000000n
-formatEther(1500...000n)   // → "1.5"
-
-// Generic conversions
-parseUnits("1.5", 6)       // → 1500000n (USDC)
-formatUnits(1500000n, 6)   // → "1.5"
+// All available aliases:
+import { cn } from '@/lib/utils';
+import { RootProvider } from '@/providers/root-provider';
+import { familyManagerAbi } from '@/contracts';
 ```
 
 ---
 
 ## ✅ Validation
 
-All checks pass:
+Before deploying, run all checks:
 ```bash
 npm run typecheck  # ✓ TypeScript OK
-npm run build      # ✓ Build succeeds
-npm run lint       # ✓ No errors
+npm run lint       # ✓ ESLint passes
+npm run format     # ✓ Prettier formatting
+npm run build      # ✓ Production build succeeds
+npm test           # ✓ All tests pass
 ```
-
----
-
-## 🔒 Security
-
-✅ Hidden from production nav  
-✅ URL-based access only  
-✅ Warning dialog guards access  
-✅ In-memory only (no blockchain writes)  
-✅ Simulated transaction hashes  
 
 ---
 
 ## 🐛 Troubleshooting
 
-**No results showing?**
-- Check browser console for errors
-- Verify service is imported correctly
+**Wallet not connecting?**
+- Ensure you're on Base Sepolia network
+- Check RPC URL in `.env.local`
+- Verify contract addresses are set
 
 **TypeScript errors?**
-- Run `npm run typecheck`
-- Check all types imported from `types.ts`
+- Run `npm install` to ensure all deps are installed
+- Run `npm run typecheck` for detailed errors
 
 **Build fails?**
-- Run `npm run build` for details
-- Check for any console.logs
+- Check environment variables are set
+- Verify all imports use correct path aliases
+- Run `npm run lint` to catch issues
 
-**Can't access test harness?**
-- Verify URL has `#dev` or `?dev=true`
-- Check browser console for routing errors
+**Styling issues?**
+- Ensure Tailwind content paths include your files
+- Check `tailwind.config.js` configuration
 
 ---
 
 ## 📞 Need Help?
 
-1. Read **DEV_TEST_HARNESS.md** for detailed guide
-2. Check **FEATURE_SUMMARY.md** for overview
-3. See **pages/dev/INTEGRATION_EXAMPLE.md** for contract integration
+1. Check **APP_IMPLEMENTATION.md** for architecture details
+2. Read **FEATURE_SUMMARY.md** for feature overview
+3. See **src/README.md** for SDK documentation
+4. Review **FAMILY_MANAGER_HOOKS_IMPLEMENTATION.md** for hooks usage
 
 ---
 
-## 🎨 Result Colors
-
-| Color | Meaning |
-|-------|---------|
-| 🟢 Green | Success |
-| 🔴 Red | Error |
-| 🔵 Blue | Get/Read operations |
-| 🟢 Green | Add/Create operations |
-| 🟡 Yellow | Update operations |
-| 🔴 Red | Delete/Revoke operations |
-| 🟣 Purple | Process operations |
-
----
-
-**Ready to test? Navigate to http://localhost:5173/#dev** 🚀
+**Ready to build? Start with `npm run dev` 🚀**
