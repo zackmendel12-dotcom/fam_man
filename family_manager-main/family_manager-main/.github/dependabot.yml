@@ -1,0 +1,87 @@
+# Dependabot configuration for automated dependency updates
+# Documentation: https://docs.github.com/en/code-security/dependabot
+#
+# NOTE: You can use either Dependabot OR Renovate, not both.
+# This file provides a Dependabot alternative to renovate.json.
+# Enable only one automated dependency updater for your project.
+
+version: 2
+updates:
+  # Enable version updates for npm
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers: []
+    assignees: []
+    labels:
+      - "dependencies"
+    # Group related dependency updates
+    groups:
+      # React ecosystem
+      react-ecosystem:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      # Next.js ecosystem
+      nextjs-ecosystem:
+        patterns:
+          - "next"
+          - "eslint-config-next"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      # Blockchain stack
+      blockchain-stack:
+        patterns:
+          - "wagmi"
+          - "viem"
+          - "@coinbase/onchainkit"
+          - "@tanstack/react-query"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      # Development dependencies
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+    
+    # Version update strategies
+    versioning-strategy: increase
+    
+    # Ignore certain updates (add packages to ignore here)
+    ignore: []
+    
+    # Commit message preferences
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # GitHub Actions (if you have workflows)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"

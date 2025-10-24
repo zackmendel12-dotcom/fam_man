@@ -1,0 +1,137 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "UTC",
+  "schedule": [
+    "before 5am on monday"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "assignees": [],
+  "reviewers": [],
+  "packageRules": [
+    {
+      "groupName": "React ecosystem",
+      "matchPackagePatterns": [
+        "^react",
+        "^@types/react"
+      ],
+      "groupSlug": "react-ecosystem",
+      "schedule": [
+        "before 5am on monday"
+      ]
+    },
+    {
+      "groupName": "Next.js ecosystem",
+      "matchPackagePatterns": [
+        "^next",
+        "^eslint-config-next"
+      ],
+      "groupSlug": "nextjs-ecosystem",
+      "schedule": [
+        "before 5am on monday"
+      ]
+    },
+    {
+      "groupName": "Blockchain stack",
+      "matchPackageNames": [
+        "wagmi",
+        "viem",
+        "@coinbase/onchainkit",
+        "@tanstack/react-query"
+      ],
+      "groupSlug": "blockchain-stack",
+      "schedule": [
+        "before 5am on monday"
+      ]
+    },
+    {
+      "groupName": "Testing tools",
+      "matchPackagePatterns": [
+        "^vitest",
+        "^@vitest"
+      ],
+      "groupSlug": "testing-tools"
+    },
+    {
+      "groupName": "TypeScript and types",
+      "matchPackageNames": [
+        "typescript",
+        "@types/node"
+      ],
+      "groupSlug": "typescript-stack"
+    },
+    {
+      "groupName": "CSS tooling",
+      "matchPackageNames": [
+        "tailwindcss",
+        "postcss",
+        "autoprefixer"
+      ],
+      "groupSlug": "css-tooling"
+    },
+    {
+      "groupName": "Linting",
+      "matchPackagePatterns": [
+        "^eslint"
+      ],
+      "groupSlug": "linting"
+    },
+    {
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true,
+      "labels": [
+        "dependencies",
+        "major-update"
+      ]
+    },
+    {
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies"
+      ]
+    },
+    {
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "dev-dependencies"
+      ]
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": [
+      "security"
+    ],
+    "assignees": []
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 5am on monday"
+    ]
+  },
+  "ignoreDeps": [],
+  "rangeStrategy": "bump",
+  "semanticCommits": "enabled",
+  "commitMessagePrefix": "chore(deps):",
+  "commitMessageAction": "update",
+  "commitMessageTopic": "{{depName}}",
+  "commitMessageExtra": "to {{newVersion}}",
+  "commitBody": "See changes: {{#if homepage}}{{{homepage}}}{{/if}}{{#if sourceUrl}}{{{sourceUrl}}}{{/if}}"
+}

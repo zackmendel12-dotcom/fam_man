@@ -5,7 +5,10 @@ import { OnchainKitProvider } from "@coinbase/onchainkit";
 import { WagmiProvider } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { wagmiConfig } from "../working_connect_wallet_sample/wagmi.config";
-import "@coinbase/onchainkit/styles.css";
+// Note: OnchainKit styles temporarily commented due to PostCSS @property parsing issues
+// See: https://github.com/coinbase/onchainkit/issues with Next.js 14 + PostCSS
+// TODO: Uncomment when Next.js 15 stable is fully released or PostCSS is updated
+// import "@coinbase/onchainkit/styles.css";
 import "./globals.css";
 
 const queryClient = new QueryClient();
