@@ -1,5 +1,6 @@
 import { useReadContract, useWriteContract, useWatchContractEvent, useAccount, useWaitForTransactionReceipt } from "wagmi";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { 
   familyManagerAbi, 
   usdcAbi, 
@@ -7,7 +8,9 @@ import {
   getUsdcAddress,
   toUsdcAmount as contractToUsdcAmount,
   fromUsdcAmount as contractFromUsdcAmount,
-  formatUsdcAmount as contractFormatUsdcAmount 
+  formatUsdcAmount as contractFormatUsdcAmount,
+  hasAbiFunction,
+  validateAbiFunction
 } from "../contracts/family_manager";
 import type { Address } from "viem";
 
@@ -28,9 +31,9 @@ export type ChildSpent = {
 };
 
 export type TransactionEvent = {
-  type: "ChildRegistered" | "ChildFunded" | "LimitsUpdated" | "CategoryBlocked" | "Spent" | "ChildPaused";
+  type: "ChildRegistered" | "ChildFunded" | "LimitsUpdated" | "CategoryBlocked" | "Spent" | "ChildPaused" | "AuthorizedSpenderSet" | "ChildUnregistered" | "ParentTransferred" | "TokensReclaimed";
   timestamp: number;
-  data: any;
+  data: Record<string, unknown>;
   txHash?: string | null;
 };
 
@@ -44,10 +47,15 @@ const REVERT_MESSAGES: Record<string, string> = {
   "InsufficientBalance": "Insufficient balance for this transaction",
   "InvalidAmount": "Invalid amount specified",
   "ZeroAddress": "Invalid address: zero address not allowed",
+  "InsufficientAllowance": "Insufficient USDC allowance. Please approve the contract to spend USDC.",
+  "NotAuthorized": "You are not authorized to perform this action",
 };
 
-function translateError(error: any): string {
-  const errorString = error?.message || error?.toString() || "Unknown error";
+function translateError(error: unknown): string {
+  if (!error) return "Unknown error occurred";
+  
+  const err = error as { message?: string; toString?: () => string };
+  const errorString = err?.message || err?.toString?.() || "Unknown error";
   
   for (const [key, message] of Object.entries(REVERT_MESSAGES)) {
     if (errorString.includes(key)) {
@@ -55,7 +63,7 @@ function translateError(error: any): string {
     }
   }
 
-  if (errorString.includes("user rejected")) {
+  if (errorString.includes("user rejected") || errorString.includes("User rejected")) {
     return "Transaction was rejected by user";
   }
 
@@ -63,11 +71,33 @@ function translateError(error: any): string {
     return "Insufficient funds in your wallet";
   }
 
+  if (errorString.includes("network") || errorString.includes("Network")) {
+    return "Network error. Please check your connection and try again.";
+  }
+
   return "Transaction failed. Please try again.";
 }
 
-export function useChildBalance(childAddress?: Address) {
-  const familyManagerAddress = getFamilyManagerAddress();
+type ReadHookResult<T> = {
+  data: T | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+};
+
+type WriteHookResult<TArgs extends unknown[] = []> = {
+  write: (...args: TArgs) => Promise<void>;
+  hash: `0x${string}` | undefined;
+  isPending: boolean;
+  isConfirming: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+  error: string | null;
+  reset: () => void;
+};
+
+export function useChildBalance(childAddress?: Address): ReadHookResult<bigint> & { balanceFormatted: string } {
   const usdcAddress = getUsdcAddress();
 
   const { data, isLoading, isError, error, refetch } = useReadContract({
@@ -77,20 +107,21 @@ export function useChildBalance(childAddress?: Address) {
     args: childAddress ? [childAddress] : undefined,
     query: {
       enabled: !!childAddress,
+      staleTime: 10_000,
     },
   });
 
   return {
-    balance: data as bigint | undefined,
+    data: data as bigint | undefined,
     balanceFormatted: data ? formatUsdcAmount(data as bigint) : "0.00",
     isLoading,
     isError,
-    error,
+    error: error as Error | null,
     refetch,
   };
 }
 
-export function useChildLimits(childAddress?: Address) {
+export function useChildLimits(childAddress?: Address): ReadHookResult<ChildLimits> {
   const familyManagerAddress = getFamilyManagerAddress();
 
   const { data, isLoading, isError, error, refetch } = useReadContract({
@@ -100,25 +131,26 @@ export function useChildLimits(childAddress?: Address) {
     args: childAddress ? [childAddress] : undefined,
     query: {
       enabled: !!childAddress,
+      staleTime: 30_000,
     },
   });
 
   const limits = data as [bigint, bigint, bigint] | undefined;
 
   return {
-    limits: limits ? {
+    data: limits ? {
       daily: limits[0],
       weekly: limits[1],
       monthly: limits[2],
     } : undefined,
     isLoading,
     isError,
-    error,
+    error: error as Error | null,
     refetch,
   };
 }
 
-export function useChildSpent(childAddress?: Address) {
+export function useChildSpent(childAddress?: Address): ReadHookResult<ChildSpent> {
   const familyManagerAddress = getFamilyManagerAddress();
 
   const { data, isLoading, isError, error, refetch } = useReadContract({
@@ -128,25 +160,26 @@ export function useChildSpent(childAddress?: Address) {
     args: childAddress ? [childAddress] : undefined,
     query: {
       enabled: !!childAddress,
+      staleTime: 10_000,
     },
   });
 
   const spent = data as [bigint, bigint, bigint] | undefined;
 
   return {
-    spent: spent ? {
+    data: spent ? {
       dailySpent: spent[0],
       weeklySpent: spent[1],
       monthlySpent: spent[2],
     } : undefined,
     isLoading,
     isError,
-    error,
+    error: error as Error | null,
     refetch,
   };
 }
 
-export function useIsChildPaused(childAddress?: Address) {
+export function useIsChildPaused(childAddress?: Address): ReadHookResult<boolean> {
   const familyManagerAddress = getFamilyManagerAddress();
 
   const { data, isLoading, isError, error, refetch } = useReadContract({
@@ -156,19 +189,20 @@ export function useIsChildPaused(childAddress?: Address) {
     args: childAddress ? [childAddress] : undefined,
     query: {
       enabled: !!childAddress,
+      staleTime: 30_000,
     },
   });
 
   return {
-    isPaused: data as boolean | undefined,
+    data: data as boolean | undefined,
     isLoading,
     isError,
-    error,
+    error: error as Error | null,
     refetch,
   };
 }
 
-export function useIsRegisteredChild(childAddress?: Address) {
+export function useIsRegisteredChild(childAddress?: Address): ReadHookResult<boolean> {
   const familyManagerAddress = getFamilyManagerAddress();
 
   const { data, isLoading, isError, error, refetch } = useReadContract({
@@ -178,19 +212,20 @@ export function useIsRegisteredChild(childAddress?: Address) {
     args: childAddress ? [childAddress] : undefined,
     query: {
       enabled: !!childAddress,
+      staleTime: 30_000,
     },
   });
 
   return {
-    isRegistered: data as boolean | undefined,
+    data: data as boolean | undefined,
     isLoading,
     isError,
-    error,
+    error: error as Error | null,
     refetch,
   };
 }
 
-export function useChildParent(childAddress?: Address) {
+export function useChildParent(childAddress?: Address): ReadHookResult<Address> {
   const familyManagerAddress = getFamilyManagerAddress();
 
   const { data, isLoading, isError, error, refetch } = useReadContract({
@@ -200,19 +235,20 @@ export function useChildParent(childAddress?: Address) {
     args: childAddress ? [childAddress] : undefined,
     query: {
       enabled: !!childAddress,
+      staleTime: 30_000,
     },
   });
 
   return {
-    parent: data as Address | undefined,
+    data: data as Address | undefined,
     isLoading,
     isError,
-    error,
+    error: error as Error | null,
     refetch,
   };
 }
 
-export function useIsCategoryBlocked(childAddress?: Address, categoryId?: number) {
+export function useIsCategoryBlocked(childAddress?: Address, categoryId?: number): ReadHookResult<boolean> {
   const familyManagerAddress = getFamilyManagerAddress();
 
   const { data, isLoading, isError, error, refetch } = useReadContract({
@@ -222,19 +258,20 @@ export function useIsCategoryBlocked(childAddress?: Address, categoryId?: number
     args: childAddress && categoryId !== undefined ? [childAddress, BigInt(categoryId)] : undefined,
     query: {
       enabled: !!childAddress && categoryId !== undefined,
+      staleTime: 30_000,
     },
   });
 
   return {
-    isBlocked: data as boolean | undefined,
+    data: data as boolean | undefined,
     isLoading,
     isError,
-    error,
+    error: error as Error | null,
     refetch,
   };
 }
 
-export function useParentChildren(parentAddress?: Address, index?: number) {
+export function useParentChildren(parentAddress?: Address, index?: number): ReadHookResult<Address> {
   const familyManagerAddress = getFamilyManagerAddress();
 
   const { data, isLoading, isError, error, refetch } = useReadContract({
@@ -248,15 +285,15 @@ export function useParentChildren(parentAddress?: Address, index?: number) {
   });
 
   return {
-    child: data as Address | undefined,
+    data: data as Address | undefined,
     isLoading,
     isError,
-    error,
+    error: error as Error | null,
     refetch,
   };
 }
 
-export function useUsdcAllowance(owner?: Address, spender?: Address) {
+export function useUsdcAllowance(owner?: Address, spender?: Address): ReadHookResult<bigint> {
   const usdcAddress = getUsdcAddress();
 
   const { data, isLoading, isError, error, refetch } = useReadContract({
@@ -266,32 +303,65 @@ export function useUsdcAllowance(owner?: Address, spender?: Address) {
     args: owner && spender ? [owner, spender] : undefined,
     query: {
       enabled: !!owner && !!spender,
+      staleTime: 5_000,
     },
   });
 
   return {
-    allowance: data as bigint | undefined,
+    data: data as bigint | undefined,
     isLoading,
     isError,
-    error,
+    error: error as Error | null,
     refetch,
   };
 }
 
-export function useRegisterChild() {
+export function useIsAuthorizedSpender(childAddress?: Address, spenderAddress?: Address): ReadHookResult<boolean> {
   const familyManagerAddress = getFamilyManagerAddress();
-  const { writeContract, data: hash, isPending, isError, error } = useWriteContract();
+
+  const { data, isLoading, isError, error, refetch } = useReadContract({
+    address: familyManagerAddress,
+    abi: familyManagerAbi,
+    functionName: "authorizedSpenders",
+    args: childAddress && spenderAddress ? [childAddress, spenderAddress] : undefined,
+    query: {
+      enabled: !!childAddress && !!spenderAddress,
+      staleTime: 30_000,
+    },
+  });
+
+  return {
+    data: data as boolean | undefined,
+    isLoading,
+    isError,
+    error: error as Error | null,
+    refetch,
+  };
+}
+
+export function useRegisterChild(): WriteHookResult<[Address]> {
+  const familyManagerAddress = getFamilyManagerAddress();
+  const queryClient = useQueryClient();
+  const { writeContractAsync, data: hash, isPending, reset } = useWriteContract();
   const [friendlyError, setFriendlyError] = useState<string | null>(null);
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
+  useEffect(() => {
+    if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ["readContract"] });
+    }
+  }, [isSuccess, queryClient]);
+
   const registerChild = useCallback(
     async (childAddress: Address) => {
       try {
         setFriendlyError(null);
-        await writeContract({
+        validateAbiFunction(familyManagerAbi, "registerChild");
+        
+        await writeContractAsync({
           address: familyManagerAddress,
           abi: familyManagerAbi,
           functionName: "registerChild",
@@ -300,38 +370,49 @@ export function useRegisterChild() {
       } catch (err) {
         const message = translateError(err);
         setFriendlyError(message);
-        console.error("registerChild error:", err);
+        console.error("[FamilyManager] registerChild error:", err);
         throw new Error(message);
       }
     },
-    [writeContract, familyManagerAddress]
+    [writeContractAsync, familyManagerAddress]
   );
 
   return {
-    registerChild,
+    write: registerChild,
     hash,
     isPending,
     isConfirming,
     isSuccess,
-    isError,
-    error: friendlyError || (error ? translateError(error) : null),
+    isError: !!friendlyError,
+    error: friendlyError,
+    reset: () => {
+      reset();
+      setFriendlyError(null);
+    },
   };
 }
 
-export function useApproveUsdc() {
+export function useApproveUsdc(): WriteHookResult<[Address, bigint]> {
   const usdcAddress = getUsdcAddress();
-  const { writeContract, data: hash, isPending, isError, error } = useWriteContract();
+  const queryClient = useQueryClient();
+  const { writeContractAsync, data: hash, isPending, reset } = useWriteContract();
   const [friendlyError, setFriendlyError] = useState<string | null>(null);
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
+  useEffect(() => {
+    if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ["readContract"] });
+    }
+  }, [isSuccess, queryClient]);
+
   const approve = useCallback(
     async (spender: Address, amount: bigint) => {
       try {
         setFriendlyError(null);
-        await writeContract({
+        await writeContractAsync({
           address: usdcAddress,
           abi: usdcAbi,
           functionName: "approve",
@@ -340,38 +421,66 @@ export function useApproveUsdc() {
       } catch (err) {
         const message = translateError(err);
         setFriendlyError(message);
-        console.error("approve error:", err);
+        console.error("[FamilyManager] approve error:", err);
         throw new Error(message);
       }
     },
-    [writeContract, usdcAddress]
+    [writeContractAsync, usdcAddress]
   );
 
   return {
-    approve,
+    write: approve,
     hash,
     isPending,
     isConfirming,
     isSuccess,
-    isError,
-    error: friendlyError || (error ? translateError(error) : null),
+    isError: !!friendlyError,
+    error: friendlyError,
+    reset: () => {
+      reset();
+      setFriendlyError(null);
+    },
   };
 }
 
-export function useFundChild() {
+export function useFundChild(): WriteHookResult<[Address, bigint, boolean?]> {
   const familyManagerAddress = getFamilyManagerAddress();
-  const { writeContract, data: hash, isPending, isError, error } = useWriteContract();
+  const queryClient = useQueryClient();
+  const { address: userAddress } = useAccount();
+  const { writeContractAsync, data: hash, isPending, reset } = useWriteContract();
   const [friendlyError, setFriendlyError] = useState<string | null>(null);
+  const { data: allowance, refetch: refetchAllowance } = useUsdcAllowance(userAddress, familyManagerAddress);
+  const { write: approve, isPending: isApproving } = useApproveUsdc();
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
+  useEffect(() => {
+    if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ["readContract"] });
+    }
+  }, [isSuccess, queryClient]);
+
   const fundChild = useCallback(
-    async (childAddress: Address, amount: bigint) => {
+    async (childAddress: Address, amount: bigint, autoApprove: boolean = true) => {
       try {
         setFriendlyError(null);
-        await writeContract({
+        validateAbiFunction(familyManagerAbi, "fundChild");
+
+        if (autoApprove && userAddress) {
+          await refetchAllowance();
+          const currentAllowance = allowance || BigInt(0);
+          
+          if (currentAllowance < amount) {
+            console.log(`[FamilyManager] Insufficient allowance (${currentAllowance}). Requesting approval for ${amount}...`);
+            await approve(familyManagerAddress, amount);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            await refetchAllowance();
+          }
+        }
+        
+        await writeContractAsync({
           address: familyManagerAddress,
           abi: familyManagerAbi,
           functionName: "fundChild",
@@ -380,78 +489,51 @@ export function useFundChild() {
       } catch (err) {
         const message = translateError(err);
         setFriendlyError(message);
-        console.error("fundChild error:", err);
+        console.error("[FamilyManager] fundChild error:", err);
         throw new Error(message);
       }
     },
-    [writeContract, familyManagerAddress]
+    [writeContractAsync, familyManagerAddress, userAddress, allowance, approve, refetchAllowance]
   );
 
   return {
-    fundChild,
+    write: fundChild,
     hash,
-    isPending,
+    isPending: isPending || isApproving,
     isConfirming,
     isSuccess,
-    isError,
-    error: friendlyError || (error ? translateError(error) : null),
-  };
-}
-
-export function useFundChildWithApproval() {
-  const { address } = useAccount();
-  const familyManagerAddress = getFamilyManagerAddress();
-  const { allowance, refetch: refetchAllowance } = useUsdcAllowance(address, familyManagerAddress);
-  const { approve, isPending: isApproving, isConfirming: isApprovingConfirming, isSuccess: isApproveSuccess } = useApproveUsdc();
-  const { fundChild, isPending: isFunding, isConfirming: isFundingConfirming, isSuccess: isFundSuccess } = useFundChild();
-  const [error, setError] = useState<string | null>(null);
-
-  const fundWithApproval = useCallback(
-    async (childAddress: Address, amount: bigint) => {
-      try {
-        setError(null);
-
-        const currentAllowance = allowance || BigInt(0);
-        if (currentAllowance < amount) {
-          await approve(familyManagerAddress, amount);
-          await refetchAllowance();
-        }
-
-        await fundChild(childAddress, amount);
-      } catch (err) {
-        const message = translateError(err);
-        setError(message);
-        console.error("fundWithApproval error:", err);
-        throw new Error(message);
-      }
+    isError: !!friendlyError,
+    error: friendlyError,
+    reset: () => {
+      reset();
+      setFriendlyError(null);
     },
-    [allowance, approve, fundChild, familyManagerAddress, refetchAllowance]
-  );
-
-  return {
-    fundWithApproval,
-    isPending: isApproving || isFunding,
-    isConfirming: isApprovingConfirming || isFundingConfirming,
-    isSuccess: isFundSuccess,
-    isError: !!error,
-    error,
   };
 }
 
-export function useUpdateChildLimits() {
+export function useUpdateChildLimits(): WriteHookResult<[Address, ChildLimits]> {
   const familyManagerAddress = getFamilyManagerAddress();
-  const { writeContract, data: hash, isPending, isError, error } = useWriteContract();
+  const queryClient = useQueryClient();
+  const { writeContractAsync, data: hash, isPending, reset } = useWriteContract();
   const [friendlyError, setFriendlyError] = useState<string | null>(null);
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
+  useEffect(() => {
+    if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ["readContract"] });
+    }
+  }, [isSuccess, queryClient]);
+
   const updateLimits = useCallback(
     async (childAddress: Address, limits: ChildLimits) => {
       try {
         setFriendlyError(null);
-        await writeContract({
+        validateAbiFunction(familyManagerAbi, "updateChildLimits");
+        
+        await writeContractAsync({
           address: familyManagerAddress,
           abi: familyManagerAbi,
           functionName: "updateChildLimits",
@@ -460,38 +542,51 @@ export function useUpdateChildLimits() {
       } catch (err) {
         const message = translateError(err);
         setFriendlyError(message);
-        console.error("updateLimits error:", err);
+        console.error("[FamilyManager] updateLimits error:", err);
         throw new Error(message);
       }
     },
-    [writeContract, familyManagerAddress]
+    [writeContractAsync, familyManagerAddress]
   );
 
   return {
-    updateLimits,
+    write: updateLimits,
     hash,
     isPending,
     isConfirming,
     isSuccess,
-    isError,
-    error: friendlyError || (error ? translateError(error) : null),
+    isError: !!friendlyError,
+    error: friendlyError,
+    reset: () => {
+      reset();
+      setFriendlyError(null);
+    },
   };
 }
 
-export function usePauseChild() {
+export function usePauseChild(): WriteHookResult<[Address, boolean]> {
   const familyManagerAddress = getFamilyManagerAddress();
-  const { writeContract, data: hash, isPending, isError, error } = useWriteContract();
+  const queryClient = useQueryClient();
+  const { writeContractAsync, data: hash, isPending, reset } = useWriteContract();
   const [friendlyError, setFriendlyError] = useState<string | null>(null);
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
+  useEffect(() => {
+    if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ["readContract"] });
+    }
+  }, [isSuccess, queryClient]);
+
   const pauseChild = useCallback(
     async (childAddress: Address, paused: boolean) => {
       try {
         setFriendlyError(null);
-        await writeContract({
+        validateAbiFunction(familyManagerAbi, "pauseChild");
+        
+        await writeContractAsync({
           address: familyManagerAddress,
           abi: familyManagerAbi,
           functionName: "pauseChild",
@@ -500,38 +595,51 @@ export function usePauseChild() {
       } catch (err) {
         const message = translateError(err);
         setFriendlyError(message);
-        console.error("pauseChild error:", err);
+        console.error("[FamilyManager] pauseChild error:", err);
         throw new Error(message);
       }
     },
-    [writeContract, familyManagerAddress]
+    [writeContractAsync, familyManagerAddress]
   );
 
   return {
-    pauseChild,
+    write: pauseChild,
     hash,
     isPending,
     isConfirming,
     isSuccess,
-    isError,
-    error: friendlyError || (error ? translateError(error) : null),
+    isError: !!friendlyError,
+    error: friendlyError,
+    reset: () => {
+      reset();
+      setFriendlyError(null);
+    },
   };
 }
 
-export function useChildSpend() {
+export function useChildSpend(): WriteHookResult<[Address, bigint, number]> {
   const familyManagerAddress = getFamilyManagerAddress();
-  const { writeContract, data: hash, isPending, isError, error } = useWriteContract();
+  const queryClient = useQueryClient();
+  const { writeContractAsync, data: hash, isPending, reset } = useWriteContract();
   const [friendlyError, setFriendlyError] = useState<string | null>(null);
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
+  useEffect(() => {
+    if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ["readContract"] });
+    }
+  }, [isSuccess, queryClient]);
+
   const spend = useCallback(
     async (recipient: Address, amount: bigint, categoryId: number) => {
       try {
         setFriendlyError(null);
-        await writeContract({
+        validateAbiFunction(familyManagerAbi, "childSpend");
+        
+        await writeContractAsync({
           address: familyManagerAddress,
           abi: familyManagerAbi,
           functionName: "childSpend",
@@ -540,38 +648,51 @@ export function useChildSpend() {
       } catch (err) {
         const message = translateError(err);
         setFriendlyError(message);
-        console.error("childSpend error:", err);
+        console.error("[FamilyManager] childSpend error:", err);
         throw new Error(message);
       }
     },
-    [writeContract, familyManagerAddress]
+    [writeContractAsync, familyManagerAddress]
   );
 
   return {
-    spend,
+    write: spend,
     hash,
     isPending,
     isConfirming,
     isSuccess,
-    isError,
-    error: friendlyError || (error ? translateError(error) : null),
+    isError: !!friendlyError,
+    error: friendlyError,
+    reset: () => {
+      reset();
+      setFriendlyError(null);
+    },
   };
 }
 
-export function useReclaimTokens() {
+export function useReclaimTokens(): WriteHookResult<[Address]> {
   const familyManagerAddress = getFamilyManagerAddress();
-  const { writeContract, data: hash, isPending, isError, error } = useWriteContract();
+  const queryClient = useQueryClient();
+  const { writeContractAsync, data: hash, isPending, reset } = useWriteContract();
   const [friendlyError, setFriendlyError] = useState<string | null>(null);
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
+  useEffect(() => {
+    if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ["readContract"] });
+    }
+  }, [isSuccess, queryClient]);
+
   const reclaim = useCallback(
     async (to: Address) => {
       try {
         setFriendlyError(null);
-        await writeContract({
+        validateAbiFunction(familyManagerAbi, "recoverUnallocatedTokens");
+        
+        await writeContractAsync({
           address: familyManagerAddress,
           abi: familyManagerAbi,
           functionName: "recoverUnallocatedTokens",
@@ -580,38 +701,51 @@ export function useReclaimTokens() {
       } catch (err) {
         const message = translateError(err);
         setFriendlyError(message);
-        console.error("reclaim error:", err);
+        console.error("[FamilyManager] reclaim error:", err);
         throw new Error(message);
       }
     },
-    [writeContract, familyManagerAddress]
+    [writeContractAsync, familyManagerAddress]
   );
 
   return {
-    reclaim,
+    write: reclaim,
     hash,
     isPending,
     isConfirming,
     isSuccess,
-    isError,
-    error: friendlyError || (error ? translateError(error) : null),
+    isError: !!friendlyError,
+    error: friendlyError,
+    reset: () => {
+      reset();
+      setFriendlyError(null);
+    },
   };
 }
 
-export function useUnregisterChild() {
+export function useUnregisterChild(): WriteHookResult<[Address]> {
   const familyManagerAddress = getFamilyManagerAddress();
-  const { writeContract, data: hash, isPending, isError, error } = useWriteContract();
+  const queryClient = useQueryClient();
+  const { writeContractAsync, data: hash, isPending, reset } = useWriteContract();
   const [friendlyError, setFriendlyError] = useState<string | null>(null);
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
+  useEffect(() => {
+    if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ["readContract"] });
+    }
+  }, [isSuccess, queryClient]);
+
   const unregisterChild = useCallback(
     async (childAddress: Address) => {
       try {
         setFriendlyError(null);
-        await writeContract({
+        validateAbiFunction(familyManagerAbi, "unregisterChild");
+        
+        await writeContractAsync({
           address: familyManagerAddress,
           abi: familyManagerAbi,
           functionName: "unregisterChild",
@@ -620,38 +754,51 @@ export function useUnregisterChild() {
       } catch (err) {
         const message = translateError(err);
         setFriendlyError(message);
-        console.error("unregisterChild error:", err);
+        console.error("[FamilyManager] unregisterChild error:", err);
         throw new Error(message);
       }
     },
-    [writeContract, familyManagerAddress]
+    [writeContractAsync, familyManagerAddress]
   );
 
   return {
-    unregisterChild,
+    write: unregisterChild,
     hash,
     isPending,
     isConfirming,
     isSuccess,
-    isError,
-    error: friendlyError || (error ? translateError(error) : null),
+    isError: !!friendlyError,
+    error: friendlyError,
+    reset: () => {
+      reset();
+      setFriendlyError(null);
+    },
   };
 }
 
-export function useSetAuthorizedSpender() {
+export function useSetAuthorizedSpender(): WriteHookResult<[Address, Address, boolean]> {
   const familyManagerAddress = getFamilyManagerAddress();
-  const { writeContract, data: hash, isPending, isError, error } = useWriteContract();
+  const queryClient = useQueryClient();
+  const { writeContractAsync, data: hash, isPending, reset } = useWriteContract();
   const [friendlyError, setFriendlyError] = useState<string | null>(null);
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
+  useEffect(() => {
+    if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ["readContract"] });
+    }
+  }, [isSuccess, queryClient]);
+
   const setAuthorizedSpender = useCallback(
     async (childAddress: Address, spenderAddress: Address, authorized: boolean) => {
       try {
         setFriendlyError(null);
-        await writeContract({
+        validateAbiFunction(familyManagerAbi, "setAuthorizedSpender");
+        
+        await writeContractAsync({
           address: familyManagerAddress,
           abi: familyManagerAbi,
           functionName: "setAuthorizedSpender",
@@ -660,38 +807,51 @@ export function useSetAuthorizedSpender() {
       } catch (err) {
         const message = translateError(err);
         setFriendlyError(message);
-        console.error("setAuthorizedSpender error:", err);
+        console.error("[FamilyManager] setAuthorizedSpender error:", err);
         throw new Error(message);
       }
     },
-    [writeContract, familyManagerAddress]
+    [writeContractAsync, familyManagerAddress]
   );
 
   return {
-    setAuthorizedSpender,
+    write: setAuthorizedSpender,
     hash,
     isPending,
     isConfirming,
     isSuccess,
-    isError,
-    error: friendlyError || (error ? translateError(error) : null),
+    isError: !!friendlyError,
+    error: friendlyError,
+    reset: () => {
+      reset();
+      setFriendlyError(null);
+    },
   };
 }
 
-export function useTransferChildParent() {
+export function useTransferChildParent(): WriteHookResult<[Address, Address]> {
   const familyManagerAddress = getFamilyManagerAddress();
-  const { writeContract, data: hash, isPending, isError, error } = useWriteContract();
+  const queryClient = useQueryClient();
+  const { writeContractAsync, data: hash, isPending, reset } = useWriteContract();
   const [friendlyError, setFriendlyError] = useState<string | null>(null);
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
+  useEffect(() => {
+    if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ["readContract"] });
+    }
+  }, [isSuccess, queryClient]);
+
   const transferChildParent = useCallback(
     async (childAddress: Address, newParentAddress: Address) => {
       try {
         setFriendlyError(null);
-        await writeContract({
+        validateAbiFunction(familyManagerAbi, "transferChildParent");
+        
+        await writeContractAsync({
           address: familyManagerAddress,
           abi: familyManagerAbi,
           functionName: "transferChildParent",
@@ -700,32 +860,44 @@ export function useTransferChildParent() {
       } catch (err) {
         const message = translateError(err);
         setFriendlyError(message);
-        console.error("transferChildParent error:", err);
+        console.error("[FamilyManager] transferChildParent error:", err);
         throw new Error(message);
       }
     },
-    [writeContract, familyManagerAddress]
+    [writeContractAsync, familyManagerAddress]
   );
 
   return {
-    transferChildParent,
+    write: transferChildParent,
     hash,
     isPending,
     isConfirming,
     isSuccess,
-    isError,
-    error: friendlyError || (error ? translateError(error) : null),
+    isError: !!friendlyError,
+    error: friendlyError,
+    reset: () => {
+      reset();
+      setFriendlyError(null);
+    },
   };
 }
 
-export function useBlockCategory() {
-  const familyManagerAddress = getFamilyManagerAddress();
-  const [error] = useState<string>("Block category function not found in ABI. This feature may not be available on this contract version.");
+export function useBlockCategory(): WriteHookResult<never> {
+  const [error] = useState<string>(
+    "Block category function not found in ABI. This feature may not be available on this contract version."
+  );
 
-  console.warn("useBlockCategory: No blockCategory or setCategoryBlocked function found in the FamilyManager ABI. Category blocking may need to be handled differently.");
+  useEffect(() => {
+    if (!hasAbiFunction(familyManagerAbi, "blockCategory") && !hasAbiFunction(familyManagerAbi, "setCategoryBlocked")) {
+      console.warn(
+        "[FamilyManager] useBlockCategory: No blockCategory or setCategoryBlocked function found in the FamilyManager ABI. " +
+        "Category blocking may need to be handled differently or is not available in this contract version."
+      );
+    }
+  }, []);
 
   return {
-    blockCategory: async () => {
+    write: async () => {
       throw new Error(error);
     },
     hash: undefined,
@@ -734,6 +906,7 @@ export function useBlockCategory() {
     isSuccess: false,
     isError: true,
     error,
+    reset: () => {},
   };
 }
 
@@ -746,15 +919,16 @@ export function useFamilyManagerEvents() {
     abi: familyManagerAbi,
     eventName: "ChildRegistered",
     onLogs(logs) {
-      logs.forEach((log: any) => {
+      logs.forEach((log) => {
+        const logWithArgs = log as typeof log & { args?: { parent?: Address; child?: Address } };
         setEvents((prev) => [
           ...prev,
           {
             type: "ChildRegistered",
             timestamp: Date.now(),
             data: {
-              parent: log.args?.parent,
-              child: log.args?.child,
+              parent: logWithArgs.args?.parent,
+              child: logWithArgs.args?.child,
             },
             txHash: log.transactionHash || undefined,
           },
@@ -768,16 +942,17 @@ export function useFamilyManagerEvents() {
     abi: familyManagerAbi,
     eventName: "ChildFunded",
     onLogs(logs) {
-      logs.forEach((log: any) => {
+      logs.forEach((log) => {
+        const logWithArgs = log as typeof log & { args?: { parent?: Address; child?: Address; amount?: bigint } };
         setEvents((prev) => [
           ...prev,
           {
             type: "ChildFunded",
             timestamp: Date.now(),
             data: {
-              parent: log.args?.parent,
-              child: log.args?.child,
-              amount: log.args?.amount,
+              parent: logWithArgs.args?.parent,
+              child: logWithArgs.args?.child,
+              amount: logWithArgs.args?.amount,
             },
             txHash: log.transactionHash || undefined,
           },
@@ -791,18 +966,19 @@ export function useFamilyManagerEvents() {
     abi: familyManagerAbi,
     eventName: "LimitsUpdated",
     onLogs(logs) {
-      logs.forEach((log: any) => {
+      logs.forEach((log) => {
+        const logWithArgs = log as typeof log & { args?: { parent?: Address; child?: Address; daily?: bigint; weekly?: bigint; monthly?: bigint } };
         setEvents((prev) => [
           ...prev,
           {
             type: "LimitsUpdated",
             timestamp: Date.now(),
             data: {
-              parent: log.args?.parent,
-              child: log.args?.child,
-              daily: log.args?.daily,
-              weekly: log.args?.weekly,
-              monthly: log.args?.monthly,
+              parent: logWithArgs.args?.parent,
+              child: logWithArgs.args?.child,
+              daily: logWithArgs.args?.daily,
+              weekly: logWithArgs.args?.weekly,
+              monthly: logWithArgs.args?.monthly,
             },
             txHash: log.transactionHash || undefined,
           },
@@ -816,17 +992,18 @@ export function useFamilyManagerEvents() {
     abi: familyManagerAbi,
     eventName: "CategoryBlocked",
     onLogs(logs) {
-      logs.forEach((log: any) => {
+      logs.forEach((log) => {
+        const logWithArgs = log as typeof log & { args?: { parent?: Address; child?: Address; categoryId?: bigint; blocked?: boolean } };
         setEvents((prev) => [
           ...prev,
           {
             type: "CategoryBlocked",
             timestamp: Date.now(),
             data: {
-              parent: log.args?.parent,
-              child: log.args?.child,
-              categoryId: log.args?.categoryId,
-              blocked: log.args?.blocked,
+              parent: logWithArgs.args?.parent,
+              child: logWithArgs.args?.child,
+              categoryId: logWithArgs.args?.categoryId,
+              blocked: logWithArgs.args?.blocked,
             },
             txHash: log.transactionHash || undefined,
           },
@@ -840,17 +1017,18 @@ export function useFamilyManagerEvents() {
     abi: familyManagerAbi,
     eventName: "Spent",
     onLogs(logs) {
-      logs.forEach((log: any) => {
+      logs.forEach((log) => {
+        const logWithArgs = log as typeof log & { args?: { child?: Address; recipient?: Address; amount?: bigint; categoryId?: bigint } };
         setEvents((prev) => [
           ...prev,
           {
             type: "Spent",
             timestamp: Date.now(),
             data: {
-              child: log.args?.child,
-              recipient: log.args?.recipient,
-              amount: log.args?.amount,
-              categoryId: log.args?.categoryId,
+              child: logWithArgs.args?.child,
+              recipient: logWithArgs.args?.recipient,
+              amount: logWithArgs.args?.amount,
+              categoryId: logWithArgs.args?.categoryId,
             },
             txHash: log.transactionHash || undefined,
           },
@@ -864,16 +1042,17 @@ export function useFamilyManagerEvents() {
     abi: familyManagerAbi,
     eventName: "ChildPaused",
     onLogs(logs) {
-      logs.forEach((log: any) => {
+      logs.forEach((log) => {
+        const logWithArgs = log as typeof log & { args?: { parent?: Address; child?: Address; paused?: boolean } };
         setEvents((prev) => [
           ...prev,
           {
             type: "ChildPaused",
             timestamp: Date.now(),
             data: {
-              parent: log.args?.parent,
-              child: log.args?.child,
-              paused: log.args?.paused,
+              parent: logWithArgs.args?.parent,
+              child: logWithArgs.args?.child,
+              paused: logWithArgs.args?.paused,
             },
             txHash: log.transactionHash || undefined,
           },
@@ -892,6 +1071,19 @@ export function useFamilyManagerEvents() {
   };
 }
 
+export function useTransactionStream() {
+  const { events } = useFamilyManagerEvents();
+  
+  const sortedEvents = useMemo(() => {
+    return [...events].sort((a, b) => b.timestamp - a.timestamp);
+  }, [events]);
+
+  return {
+    transactions: sortedEvents,
+    count: events.length,
+  };
+}
+
 export function useFamilyManager() {
   return {
     useChildBalance,
@@ -903,10 +1095,10 @@ export function useFamilyManager() {
     useIsCategoryBlocked,
     useParentChildren,
     useUsdcAllowance,
+    useIsAuthorizedSpender,
     useRegisterChild,
     useApproveUsdc,
     useFundChild,
-    useFundChildWithApproval,
     useUpdateChildLimits,
     usePauseChild,
     useChildSpend,
@@ -916,5 +1108,6 @@ export function useFamilyManager() {
     useTransferChildParent,
     useBlockCategory,
     useFamilyManagerEvents,
+    useTransactionStream,
   };
 }
