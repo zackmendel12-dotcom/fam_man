@@ -1,5 +1,20 @@
 import { familyManagerAbi, usdcAbi } from "../../contract/abis";
 import { baseSepolia } from "wagmi/chains";
+import { 
+  USDC_DECIMALS as LIB_USDC_DECIMALS,
+  toUsdcAmount as libToUsdcAmount,
+  fromUsdcAmount as libFromUsdcAmount,
+  formatUsdcAmount as libFormatUsdcAmount,
+  parseUsdcInput,
+  isZeroUsdc,
+  isNegativeUsdc,
+  isPositiveUsdc,
+  addUsdc,
+  subtractUsdc,
+  compareUsdc,
+  minUsdc,
+  maxUsdc
+} from "../lib/units";
 
 export { familyManagerAbi, usdcAbi };
 
@@ -59,20 +74,21 @@ export function getUsdcAddress(): `0x${string}` {
   return address as `0x${string}`;
 }
 
-export const USDC_DECIMALS = 6;
-
-export function toUsdcAmount(amount: number | string): bigint {
-  const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return BigInt(Math.floor(num * 10 ** USDC_DECIMALS));
-}
-
-export function fromUsdcAmount(amount: bigint): number {
-  return Number(amount) / 10 ** USDC_DECIMALS;
-}
-
-export function formatUsdcAmount(amount: bigint): string {
-  return fromUsdcAmount(amount).toFixed(2);
-}
+export const USDC_DECIMALS = LIB_USDC_DECIMALS;
+export const toUsdcAmount = libToUsdcAmount;
+export const fromUsdcAmount = libFromUsdcAmount;
+export const formatUsdcAmount = libFormatUsdcAmount;
+export { 
+  parseUsdcInput,
+  isZeroUsdc,
+  isNegativeUsdc,
+  isPositiveUsdc,
+  addUsdc,
+  subtractUsdc,
+  compareUsdc,
+  minUsdc,
+  maxUsdc
+};
 
 export function hasAbiFunction(abi: readonly unknown[], functionName: string): boolean {
   return abi.some(
